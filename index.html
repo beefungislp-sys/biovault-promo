@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BIOVAULT — Defiende el Refugio</title>
+<style>
+  :root {
+    --bg-dark: #14110f;
+    --bg-light: #2a2622;
+    --cyan: #3ef2c1;
+    --red: #ff3b30;
+    --font: 'Courier New', Courier, monospace;
+  }
+  body {
+    margin: 0; background: var(--bg-dark); color: var(--cyan);
+    font-family: var(--font); overflow: hidden;
+    display: flex; justify-content: center; align-items: center;
+    height: 100vh; user-select: none;
+  }
+  #game-container {
+    position: relative; width: 100%; max-width: 800px;
+    aspect-ratio: 4/3; box-shadow: 0 0 20px rgba(62, 242, 193, 0.2);
+  }
+  canvas {
+    background: radial-gradient(circle at center 80%, var(--bg-light) 0%, var(--bg-dark) 100%);
+    width: 100%; height: 100%; display: block; cursor: crosshair;
+  }
+  /* CRT Scanlines Effect */
+  #game-container::after {
+    content: " "; display: block; position: absolute; top: 0; left: 0;
+    bottom: 0; right: 0; pointer-events: none; z-index: 10;
+    background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%),
+                linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+    background-size: 100% 4px, 3px 100%;
+  }
+  /* UI Overlays */
+  .ui-layer {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    display: flex; flex-direction: column; justify-content: center; align-items: center;
+    text-align: center; background: rgba(20, 17, 15, 0.85); z-index: 20;
+    text-shadow: 0 0 10px var(--cyan); backdrop-filter: blur(2px);
+  }
+  .hidden { display: none !important; }
+  h1 { font-size: 3em; margin: 0 0 10px 0; text-transform: uppercase; letter-spacing: 2px; }
+  h2 { font-size: 2em; margin: 0 0 20px 0; }
+  p { font-size: 1.2em; max-width: 80%; line-height: 1.5; }
+  button {
+    background: transparent; border: 2px solid var(--cyan); color: var(--cyan);
+    padding: 12px 24px; font-family: var(--font); font-size: 1.2em; font-weight: bold;
+    cursor: pointer; text-shadow: 0 0 5px var(--cyan); box-shadow: 0 0 10px inset rgba(62, 242, 193, 0.5);
+    margin: 10px; transition: 0.2s; text-transform: uppercase;
+  }
+  button:hover { background: var(--cyan); color: var(--bg-dark); box-shadow: 0 0 20px var(--cyan); }
+
+  /* HUD */
+  #hud {
+    position: absolute; top: 15px; left: 15px; right: 15px;
+    display: flex; justify-content: space-between; align-items: flex-start;
+    z-index: 5; text-shadow: 0 0 5px var(--cyan); font-weight: bold; pointer-events: none;
+  }
+  .hud-box { display: flex; flex-direction: column; gap: 5px; }
+  .bar-container { display: flex; align-items: center; gap: 8px; }
+  .bar-bg { background: rgba(0,0,0,0.5); border: 1px solid var(--cyan); width: 120px; height: 12px; position: relative;}
+  .bar-fill { background: var(--cyan); height: 100%; box-shadow: 0 0 8px var(--cyan); transition: width 0.2s; }
+  .bar-fill.red { background: var(--red); box-shadow: 0 0 8px var(--red); }
+  #msg-overlay {
+    position: absolute; top: 30%; width: 100%; text-align: center;
+    font-size: 2em; font-weight: bold; text-shadow: 0 0 15px var(--cyan);
+    opacity: 0; transition: opacity 0.5s; z-index: 15; pointer-events: none;
+  }
+</style>
+</head>
+<body>
+
+<div id="game-container">
+  <canvas id="gameCanvas" width="800" height="600"></canvas>
+
+  <div id="hud" class="hidden">
+    <div class="hud-box">
+      <div class="bar-container"><span>REACTOR:</span><div class="bar-bg"><div id="hp-reactor" class="bar-fill"></div></div></div>
+      <div class="bar-container"><span>COMIDA :</span><div class="bar-bg"><div id="hp-food" class="bar-fill"></div></div></div>
+    </div>
+    <div class="hud-box" style="text-align: right;">
+      <div style="font-size: 1.5em;">OLEADA <span id="hud-wave">1</span>/7</div>
+      <div>HABITANTES: <span id="hud-habs">4</span> VIVOS</div>
+    </div>
+  </div>
+
+  <div id="msg-overlay">OLEADA 1</div>
+
+  <div id="ui-title" class="ui-layer">
+    <h1>BIOVAULT</h1>
+    <p>Defiende el Refugio</p>
+    <p style="font-size: 0.9em; color: var(--red);">Cuidado: Tus clics también dañan a tus habitantes.</p>
+    <button onclick="startGame()">Iniciar Supervivencia</button>
+  </div>
+
+  <div id="ui-event" class="ui-layer hidden">
+    <h2 id="ev-title">EVENTO</h2>
+    <div style="display: flex; gap: 20px; flex-wrap: wrap; justify-content: center;">
+      <button id="ev-btn1" onclick="resolveEvent(1)">Opción 1</button>
+      <button id="ev-btn2" onclick="resolveEvent(2)">Opción 2</button>
+    </div>
+  </div>
+
+  <div id="ui-over" class="ui-layer hidden">
+    <h1 style="color: var(--red); text-shadow: 0 0 15px var(--red);">REFUGIO PERDIDO</h1>
+    <p>El núcleo del reactor ha colapsado.</p>
+    <button onclick="resetGame()">Reintentar</button>
+  </div>
+
+  <div id="ui-win" class="ui-layer hidden">
+    <h1>FELICIDADES</h1>
+    <p>SOBREVIVISTE LAS 7 OLEADAS</p>
+    <p style="margin-top: 30px; font-size: 1.5em; animation: pulse 2s infinite;">Próximamente · BIOVAULT</p>
+    <p>Puntuación Final: <span id="final-score">0</span></p>
+    <button onclick="resetGame()">Jugar de Nuevo</button>
+  </div>
+</div>
+
+<script>
+// --- MOTOR Y ESTADO ---
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+
+let state = 'title'; // title, play, pause, over, win
+let wave = 1, frame = 0, score = 0;
+let clickCooldown = 0;
+let waveTimer = 0, enemiesToSpawn = 0, spawnInterval = 0;
+let currentEvent = 0;
+
+// --- ENTIDADES ---
+const reactor = { x: 400, y: 500, hp: 100, max: 100, r: 40 };
+let foods = [];
+let inhabitants = [];
+let raiders = [];
+let projectiles = [];
+let particles = [];
+
+// Ceniza de fondo (atmósfera post-colapso) — independiente del estado de juego
+let ash = [];
+for (let i = 0; i < 18; i++) ash.push({ x: Math.random()*W, y: Math.random()*H, s: 0.5 + Math.random()*1.2, vy: 0.2 + Math.random()*0.4, vx: -0.2 + Math.random()*0.4 });
+
+// --- UTILIDADES ---
+const dist = (x1, y1, x2, y2) => Math.hypot(x2 - x1, y2 - y1);
+const rand = (min, max) => Math.random() * (max - min) + min;
+
+// ============ AUDIO (Web Audio API — todo sintetizado, sin archivos) ============
+let AC = null, master = null, muted = false, ambientNodes = null, clankTimer = null, seqStep = 0;
+
+function initAudio() {
+  if (AC) return;
+  AC = new (window.AudioContext || window.webkitAudioContext)();
+  master = AC.createGain(); master.gain.value = 0.35; master.connect(AC.destination);
+}
+function resumeAudio() { if (AC && AC.state === 'suspended') AC.resume(); }
+
+function noiseBuffer(dur) {
+  const len = Math.floor(AC.sampleRate * dur);
+  const buf = AC.createBuffer(1, len, AC.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  return buf;
+}
+function envHit(g, t0, atk, dec, peak) {
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.linearRampToValueAtTime(peak, t0 + atk);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + atk + dec);
+}
+function distCurve(amount) {
+  const n = 256, c = new Float32Array(n);
+  for (let i = 0; i < n; i++) { const x = i / n * 2 - 1; c[i] = (3 + amount) * x * 0.3 / (Math.PI + amount * Math.abs(x)); }
+  return c;
+}
+
+// Fondo industrial LIGERO: colchón suave + secuencia melódica juguetona + tick metálico
+const SEQ = [220, 0, 261.6, 329.6, 0, 261.6, 392, 0, 329.6, 261.6, 0, 220, 293.7, 0, 261.6, 0];
+function startAmbient() {
+  if (!AC || ambientNodes) return;
+  const t = AC.currentTime;
+  const g = AC.createGain(); g.gain.value = 0.0001; g.connect(master);
+  g.gain.linearRampToValueAtTime(0.035, t + 1.5);         // colchón muy al fondo (casi imperceptible)
+  const lp = AC.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 700; lp.connect(g); // más brillante, menos bass
+  const o1 = AC.createOscillator(); o1.type = 'triangle'; o1.frequency.value = 110;
+  const o2 = AC.createOscillator(); o2.type = 'triangle'; o2.frequency.value = 165; // quinta
+  const o3 = AC.createOscillator(); o3.type = 'sine';     o3.frequency.value = 220;
+  o1.connect(lp); o2.connect(lp); o3.connect(lp);
+  const lfo = AC.createOscillator(); lfo.frequency.value = 0.12;
+  const lfoG = AC.createGain(); lfoG.gain.value = 120;
+  lfo.connect(lfoG); lfoG.connect(lp.frequency);
+  o1.start(); o2.start(); o3.start(); lfo.start();
+  ambientNodes = { g, o1, o2, o3, lfo };
+  seqStep = 0;
+  clankTimer = setInterval(() => {
+    const n = SEQ[seqStep % SEQ.length];
+    if (!muted) { if (n > 0) pluck(n); if (seqStep % 4 === 2) tick(); }
+    seqStep++;
+  }, 200); // ritmo ágil
+}
+// Nota plucky (triangle suave + pizca de square = industrial juguetón)
+function pluck(f) {
+  const t = AC.currentTime;
+  const o = AC.createOscillator(); o.type = 'triangle'; o.frequency.value = f;
+  const o2 = AC.createOscillator(); o2.type = 'square'; o2.frequency.value = f;
+  const g = AC.createGain(); envHit(g, t, 0.004, 0.20, 0.14);
+  const g2 = AC.createGain(); envHit(g2, t, 0.004, 0.11, 0.035);
+  o.connect(g); o2.connect(g2); g.connect(master); g2.connect(master);
+  o.start(t); o.stop(t + 0.25); o2.start(t); o2.stop(t + 0.16);
+}
+// Tick metálico ligero (hi-hat)
+function tick() {
+  const t = AC.currentTime;
+  const src = AC.createBufferSource(); src.buffer = noiseBuffer(0.04);
+  const hp = AC.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 4200;
+  const g = AC.createGain(); envHit(g, t, 0.001, 0.04, 0.07);
+  src.connect(hp); hp.connect(g); g.connect(master); src.start(t); src.stop(t + 0.05);
+}
+function stopAmbient() {
+  if (!ambientNodes) return;
+  const t = AC.currentTime;
+  ambientNodes.g.gain.cancelScheduledValues(t);
+  ambientNodes.g.gain.setValueAtTime(ambientNodes.g.gain.value, t);
+  ambientNodes.g.gain.exponentialRampToValueAtTime(0.0001, t + 0.8);
+  ['o1', 'o2', 'o3', 'lfo'].forEach(k => { try { ambientNodes[k].stop(t + 0.9); } catch (e) {} });
+  clearInterval(clankTimer); clankTimer = null; ambientNodes = null;
+}
+
+function sfxShot(soft) {
+  if (!AC || muted) return;
+  const t = AC.currentTime, vol = soft ? 0.07 : 0.2;
+  const o = AC.createOscillator(); o.type = 'square';
+  o.frequency.setValueAtTime(soft ? 300 : 440, t);
+  o.frequency.exponentialRampToValueAtTime(soft ? 110 : 120, t + 0.08);
+  const g = AC.createGain(); envHit(g, t, 0.001, 0.09, vol);
+  o.connect(g); g.connect(master); o.start(t); o.stop(t + 0.12);
+  const src = AC.createBufferSource(); src.buffer = noiseBuffer(0.05);
+  const hp = AC.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 1100;
+  const ng = AC.createGain(); envHit(ng, t, 0.001, 0.05, vol * 0.6);
+  src.connect(hp); hp.connect(ng); ng.connect(master); src.start(t); src.stop(t + 0.06);
+}
+function sfxDeath() {
+  if (!AC || muted) return;
+  const t = AC.currentTime;
+  const src = AC.createBufferSource(); src.buffer = noiseBuffer(0.32);
+  const lp = AC.createBiquadFilter(); lp.type = 'lowpass';
+  lp.frequency.setValueAtTime(1200, t); lp.frequency.exponentialRampToValueAtTime(110, t + 0.3);
+  const g = AC.createGain(); envHit(g, t, 0.002, 0.3, 0.28);
+  src.connect(lp); lp.connect(g); g.connect(master); src.start(t); src.stop(t + 0.34);
+  const o = AC.createOscillator(); o.type = 'sawtooth';
+  o.frequency.setValueAtTime(170, t); o.frequency.exponentialRampToValueAtTime(40, t + 0.25);
+  const og = AC.createGain(); envHit(og, t, 0.002, 0.25, 0.16);
+  o.connect(og); og.connect(master); o.start(t); o.stop(t + 0.28);
+}
+function sfxWin() {
+  if (!AC || muted) return;
+  const t = AC.currentTime;
+  // impacto grave distorsionado
+  const o = AC.createOscillator(); o.type = 'sawtooth';
+  o.frequency.setValueAtTime(82, t); o.frequency.exponentialRampToValueAtTime(41, t + 1.4);
+  const ws = AC.createWaveShaper(); ws.curve = distCurve(50);
+  const g = AC.createGain();
+  g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.3, t + 0.05);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 1.6);
+  o.connect(ws); ws.connect(g); g.connect(master); o.start(t); o.stop(t + 1.6);
+  // acorde metálico ascendente
+  [110, 146.8, 164.8].forEach((f, i) => {
+    const oo = AC.createOscillator(); oo.type = 'square'; oo.frequency.value = f;
+    const gg = AC.createGain(); envHit(gg, t + i * 0.13, 0.01, 0.8, 0.1);
+    oo.connect(gg); gg.connect(master); oo.start(t + i * 0.13); oo.stop(t + i * 0.13 + 0.9);
+  });
+  // golpe de ruido (clang)
+  const src = AC.createBufferSource(); src.buffer = noiseBuffer(0.5);
+  const bp = AC.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 850; bp.Q.value = 3;
+  const ng = AC.createGain(); envHit(ng, t, 0.001, 0.5, 0.3);
+  src.connect(bp); bp.connect(ng); ng.connect(master); src.start(t); src.stop(t + 0.5);
+}
+// ================================================================================
+
+function initEntities() {
+  reactor.hp = reactor.max;
+  foods = [
+    { x: 300, y: 520, hp: 60, max: 60, w: 40, h: 30 },
+    { x: 500, y: 520, hp: 60, max: 60, w: 40, h: 30 }
+  ];
+  inhabitants = [];
+  for (let i = 0; i < 4; i++) inhabitants.push({ x: 0, y: 0, down: 0, shootCD: 0 });
+  placeInhabitants();
+  raiders = []; projectiles = []; particles = [];
+}
+
+// Coloca a TODOS los habitantes en una línea adelantada (más al frente = más vulnerables)
+function placeInhabitants() {
+  const n = inhabitants.length;
+  const spread = Math.min(380, 95 * Math.max(1, n - 1));
+  for (let i = 0; i < n; i++) {
+    const t = (n === 1) ? 0.5 : i / (n - 1);
+    inhabitants[i].x = reactor.x - spread / 2 + t * spread;
+    inhabitants[i].y = 420 - Math.sin(t * Math.PI) * 14; // arco hacia el frente
+  }
+}
+
+// Recompensa de evento: sumar habitantes
+function addInhabitants(count) {
+  for (let i = 0; i < count; i++) inhabitants.push({ x: 0, y: 0, down: 0, shootCD: 0 });
+  placeInhabitants();
+}
+
+// Recompensa de evento: curar/reparar módulos (revive uno destruido si llega > 0)
+function healModules(amount) {
+  reactor.hp = Math.min(reactor.max, Math.max(0, reactor.hp) + amount);
+  foods.forEach(f => f.hp = Math.min(f.max, Math.max(0, f.hp) + amount));
+}
+
+function showMsg(text) {
+  const msg = document.getElementById('msg-overlay');
+  msg.innerText = text;
+  msg.style.opacity = 1;
+  setTimeout(() => msg.style.opacity = 0, 2000);
+}
+
+// --- FLUJO DE JUEGO ---
+function startGame() {
+  initAudio(); resumeAudio();
+  document.getElementById('ui-title').classList.add('hidden');
+  document.getElementById('hud').classList.remove('hidden');
+  resetGame();
+}
+
+function resetGame() {
+  resumeAudio(); startAmbient();
+  document.querySelectorAll('.ui-layer').forEach(el => el.classList.add('hidden'));
+  initEntities();
+  wave = 1; score = 0; frame = 0; currentEvent = 0;
+  startWave();
+  state = 'play';
+}
+
+function startWave() {
+  showMsg(`OLEADA ${wave}`);
+  // Curva más agresiva para compensar las 7 oleadas
+  enemiesToSpawn = 8 + wave * 5;
+  if (wave === 7) enemiesToSpawn = Math.round(enemiesToSpawn * 1.15); // +15% en la última
+  spawnInterval = Math.max(20, 100 - wave * 10);
+  waveTimer = 0;
+}
+
+function checkWaveEnd() {
+  if (enemiesToSpawn <= 0 && raiders.length === 0 && state === 'play') {
+    if (wave === 7) {
+      state = 'win';
+      stopAmbient(); sfxWin();
+      let totalHP = reactor.hp + foods[0].hp + foods[1].hp;
+      document.getElementById('final-score').innerText = Math.round(totalHP) + (wave * 100);
+      document.getElementById('hud').classList.add('hidden');
+      document.getElementById('ui-win').classList.remove('hidden');
+    } else if (wave === 2 && currentEvent !== 1) {
+      triggerEvent(1, "CÁPSULA DE SUMINISTROS", "Liberar 2 ocupantes (+2 habitantes)", "Vaciar suministros (+20 HP módulos)");
+    } else if (wave === 4 && currentEvent !== 2) {
+      triggerEvent(2, "UN SUPERVIVIENTE", "Acogerlo (+1 habitante)", "Quedarte sus víveres (+25 HP módulos)");
+    } else {
+      wave++; startWave();
+    }
+  }
+}
+
+let eventLockUntil = 0;
+function triggerEvent(id, title, btn1, btn2) {
+  state = 'pause'; currentEvent = id;
+  document.getElementById('ev-title').innerText = title;
+  const b1 = document.getElementById('ev-btn1'), b2 = document.getElementById('ev-btn2');
+  b1.innerText = btn1; b2.innerText = btn2;
+  document.getElementById('ui-event').classList.remove('hidden');
+  // Bloqueo de 0.5s para que un clic rápido no descarte la ventana sin leerla
+  eventLockUntil = performance.now() + 500;
+  b1.disabled = b2.disabled = true;
+  b1.style.opacity = b2.style.opacity = '0.4';
+  setTimeout(() => {
+    b1.disabled = b2.disabled = false;
+    b1.style.opacity = b2.style.opacity = '1';
+  }, 500);
+}
+
+// Decisiones coherentes: SIEMPRE es "más gente" (Opción 1) o "reparar módulos" (Opción 2)
+function resolveEvent(choice) {
+  if (performance.now() < eventLockUntil) return; // aún en el bloqueo de 0.5s
+  if (currentEvent === 1) {
+    if (choice === 1) addInhabitants(2);
+    else healModules(20);
+  } else if (currentEvent === 2) {
+    if (choice === 1) addInhabitants(1);
+    else healModules(25);
+  }
+  createParticles(reactor.x, reactor.y, '#3ef2c1', 20);
+  document.getElementById('ui-event').classList.add('hidden');
+  state = 'play'; wave++; startWave();
+}
+
+// --- ACTUALIZACIÓN (LOGICA) ---
+function update() {
+  if (state !== 'play') return;
+  frame++;
+  if (clickCooldown > 0) clickCooldown--;
+
+  // Spawner
+  if (enemiesToSpawn > 0) {
+    waveTimer++;
+    if (waveTimer >= spawnInterval) {
+      waveTimer = 0; enemiesToSpawn--;
+      // Jefes: oleada 4 -> 1 jefe. Oleada 7 -> 2 jefes (el último, más grande).
+      let isBoss = false, bigBoss = false;
+      if (wave === 4 && enemiesToSpawn === 0) isBoss = true;
+      if (wave === 7) {
+        if (enemiesToSpawn === 1) isBoss = true;                 // primer jefe
+        if (enemiesToSpawn === 0) { isBoss = true; bigBoss = true; } // jefe final
+      }
+      let bhp = isBoss ? (bigBoss ? 320 + wave*40 : 200 + wave*30) : 25 + wave*8;
+      raiders.push({
+        x: rand(50, W - 50), y: -30,
+        hp: bhp, max: bhp,
+        speed: isBoss ? (bigBoss ? 0.25 : 0.3) : rand(0.6, 1.2),
+        r: isBoss ? (bigBoss ? 28 : 20) : 10,
+        boss: isBoss
+      });
+    }
+  }
+
+  // ¿Queda al menos un módulo de comida? (alimenta la reanimación de habitantes)
+  const foodAlive = foods.some(f => f.hp > 0);
+
+  // Identificar objetivos vivos
+  let targets = [];
+  if (reactor.hp > 0) targets.push({x: reactor.x, y: reactor.y, type: 'reactor'});
+  foods.forEach((f, idx) => { if (f.hp > 0) targets.push({x: f.x, y: f.y, type: 'food', idx}) });
+
+  // Raiders
+  for (let i = raiders.length - 1; i >= 0; i--) {
+    let r = raiders[i];
+
+    // Buscar objetivo más cercano
+    let bestDist = Infinity, tx = reactor.x, ty = reactor.y, tType = 'reactor', tIdx = -1;
+    targets.forEach(t => {
+      let d = dist(r.x, r.y, t.x, t.y);
+      if (d < bestDist) { bestDist = d; tx = t.x; ty = t.y; tType = t.type; tIdx = t.idx; }
+    });
+
+    // Mover
+    let angle = Math.atan2(ty - r.y, tx - r.x);
+    r.x += Math.cos(angle) * r.speed;
+    r.y += Math.sin(angle) * r.speed;
+
+    // Daño a estructuras
+    if (bestDist < r.r + (tType === 'reactor' ? reactor.r : 20)) {
+      if (frame % 30 === 0) {
+        if (tType === 'reactor') reactor.hp -= r.boss ? 5 : 1;
+        else foods[tIdx].hp -= r.boss ? 5 : 1;
+        createParticles(tx, ty, '#ff3b30', 5);
+      }
+    }
+
+    // Daño a habitantes por contacto
+    inhabitants.forEach(hab => {
+      if (hab.down <= 0 && dist(r.x, r.y, hab.x, hab.y) < r.r + 10) {
+        hab.down = 1080; // 18s * 60fps (triple)
+        createParticles(hab.x, hab.y, '#ff3b30', 10);
+      }
+    });
+
+    if (r.hp <= 0) {
+      createParticles(r.x, r.y, '#14110f', 15, true);
+      sfxDeath();
+      raiders.splice(i, 1);
+    }
+  }
+
+  // Habitantes
+  inhabitants.forEach(hab => {
+    // Solo se reaniman si queda comida; sin módulos de comida, siguen caídos.
+    if (hab.down > 0) { if (foodAlive) hab.down--; return; }
+    if (hab.shootCD > 0) hab.shootCD--;
+    else if (raiders.length > 0) {
+      // Buscar raider cercano
+      let target = null, bestDist = 250;
+      raiders.forEach(r => {
+        let d = dist(hab.x, hab.y, r.x, r.y);
+        if (d < bestDist) { bestDist = d; target = r; }
+      });
+      if (target) {
+        let ang = Math.atan2(target.y - hab.y, target.x - hab.x);
+        projectiles.push({ x: hab.x, y: hab.y, vx: Math.cos(ang)*8, vy: Math.sin(ang)*8 });
+        sfxShot(true); // disparo suave de habitante
+        hab.shootCD = 90; // ~1.5s (Antes disparaban más rápido)
+      }
+    }
+  });
+
+  // Proyectiles
+  for (let i = projectiles.length - 1; i >= 0; i--) {
+    let p = projectiles[i];
+    p.x += p.vx; p.y += p.vy;
+    let hit = false;
+    raiders.forEach(r => {
+      if (!hit && dist(p.x, p.y, r.x, r.y) < r.r + 5) {
+        r.hp -= 15; hit = true;
+        createParticles(p.x, p.y, '#3ef2c1', 3);
+      }
+    });
+    if (hit || p.x < 0 || p.x > W || p.y < 0 || p.y > H) projectiles.splice(i, 1);
+  }
+
+  // Partículas
+  for (let i = particles.length - 1; i >= 0; i--) {
+    let pt = particles[i];
+    pt.x += pt.vx; pt.y += pt.vy; pt.life -= 0.05;
+    if (pt.life <= 0) particles.splice(i, 1);
+  }
+
+  updateHUD();
+  checkGameEnd();
+  checkWaveEnd();
+}
+
+function updateHUD() {
+  document.getElementById('hud-wave').innerText = wave;
+  document.getElementById('hp-reactor').style.width = (Math.max(0, reactor.hp) / reactor.max * 100) + '%';
+  document.getElementById('hp-reactor').className = reactor.hp < 30 ? 'bar-fill red' : 'bar-fill';
+
+  let fhp = Math.max(0, foods[0].hp) + Math.max(0, foods[1].hp);
+  document.getElementById('hp-food').style.width = (fhp / 120 * 100) + '%';
+  document.getElementById('hp-food').className = fhp < 40 ? 'bar-fill red' : 'bar-fill';
+
+  let alive = inhabitants.filter(i => i.down <= 0).length;
+  document.getElementById('hud-habs').innerText = alive;
+}
+
+function checkGameEnd() {
+  if (reactor.hp <= 0) { // solo se pierde si cae el reactor
+    state = 'over';
+    stopAmbient();
+    document.getElementById('hud').classList.add('hidden');
+    document.getElementById('ui-over').classList.remove('hidden');
+  }
+}
+
+// --- INTERACCIÓN ---
+canvas.addEventListener('mousedown', (e) => {
+  if (state !== 'play' || clickCooldown > 0) return;
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  const cx = (e.clientX - rect.left) * scaleX;
+  const cy = (e.clientY - rect.top) * scaleY;
+
+  let hit = false;
+
+  // Dañar enemigos
+  raiders.forEach(r => {
+    if (dist(cx, cy, r.x, r.y) < r.r + 20) {
+      r.hp -= 25;
+      r.y -= 15; // Pushback
+      hit = true;
+    }
+  });
+
+  // FUEGO AMIGO: Dañar habitantes
+  inhabitants.forEach(hab => {
+    if (hab.down <= 0 && dist(cx, cy, hab.x, hab.y) < 20) {
+      hab.down = 720; // 12s noqueados por fuego amigo (triple)
+      createParticles(hab.x, hab.y, '#ff3b30', 10);
+      hit = true;
+    }
+  });
+
+  if (hit) {
+    createParticles(cx, cy, '#3ef2c1', 10);
+    sfxShot(false); // disparo del jugador
+    clickCooldown = 18; // 0.3s
+  }
+});
+
+// Silenciar / activar audio con la tecla M
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'm' || e.key === 'M') {
+    muted = !muted;
+    if (master) master.gain.value = muted ? 0 : 0.35;
+  }
+});
+
+function createParticles(x, y, color, count, isRaider = false) {
+  for(let i=0; i<count; i++) {
+    let ang = rand(0, Math.PI*2), speed = rand(1, 4);
+    particles.push({
+      x, y, vx: Math.cos(ang)*speed, vy: Math.sin(ang)*speed,
+      life: 1, c: isRaider && Math.random()>0.5 ? '#ff3b30' : color
+    });
+  }
+}
+
+// --- DIBUJADO ---
+function drawHex(x, y, r) {
+  ctx.beginPath();
+  for (let i = 0; i < 6; i++) {
+    ctx.lineTo(x + r * Math.cos(i * Math.PI / 3), y + r * Math.sin(i * Math.PI / 3));
+  }
+  ctx.closePath();
+}
+
+// Reja industrial de fondo (malla diagonal, decorativa y tenue)
+function drawGrid() {
+  ctx.save();
+  ctx.shadowBlur = 0; ctx.lineWidth = 1;
+  ctx.strokeStyle = 'rgba(120,128,118,0.05)';
+  const step = 46;
+  for (let i = -H; i < W; i += step) {
+    ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i + H, H); ctx.stroke();   // diagonal "\"
+    ctx.beginPath(); ctx.moveTo(i + H, 0); ctx.lineTo(i, H); ctx.stroke();   // diagonal "/"
+  }
+  ctx.restore();
+}
+
+// Ceniza a la deriva (fondo)
+function drawAsh() {
+  ctx.save(); ctx.shadowBlur = 0; ctx.fillStyle = '#8a857d'; ctx.globalAlpha = 0.18;
+  for (const a of ash) {
+    a.y += a.vy; a.x += a.vx;
+    if (a.y > H + 5) { a.y = -5; a.x = Math.random()*W; }
+    if (a.x < -5) a.x = W + 5; else if (a.x > W + 5) a.x = -5;
+    ctx.beginPath(); ctx.arc(a.x, a.y, a.s, 0, Math.PI*2); ctx.fill();
+  }
+  ctx.globalAlpha = 1; ctx.restore();
+}
+
+// "El Vault vivo": casco enterrado + venas de bioglow que laten hacia los módulos
+function drawVault() {
+  // Casco / domo del refugio
+  ctx.save();
+  ctx.shadowBlur = 14; ctx.shadowColor = '#3ef2c1';
+  ctx.strokeStyle = 'rgba(62,242,193,0.5)'; ctx.lineWidth = 2;
+  ctx.fillStyle = 'rgba(62,242,193,0.04)';
+  ctx.beginPath();
+  ctx.moveTo(180, 565);
+  ctx.quadraticCurveTo(400, 410, 620, 565);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.restore();
+
+  // Venas vivas (reactor -> módulos de comida vivos), brillo pulsante
+  if (reactor.hp > 0) {
+    const pulse = 0.35 + Math.sin(frame * 0.06) * 0.25;
+    ctx.save();
+    ctx.shadowBlur = 10; ctx.shadowColor = '#3ef2c1';
+    ctx.strokeStyle = 'rgba(62,242,193,' + pulse + ')'; ctx.lineWidth = 3;
+    foods.forEach(f => {
+      if (f.hp <= 0) return;
+      ctx.beginPath();
+      ctx.moveTo(reactor.x, reactor.y);
+      ctx.quadraticCurveTo((reactor.x + f.x) / 2, reactor.y + 25, f.x, f.y);
+      ctx.stroke();
+    });
+    ctx.restore();
+  }
+}
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  drawGrid();
+  drawAsh();
+  drawVault();
+
+  // Módulos Comida
+  foods.forEach(f => {
+    if (f.hp <= 0) return;
+    ctx.shadowBlur = 10; ctx.shadowColor = '#3ef2c1';
+    ctx.fillStyle = 'rgba(20, 17, 15, 0.8)';
+    ctx.strokeStyle = '#3ef2c1'; ctx.lineWidth = 2;
+    ctx.fillRect(f.x - f.w/2, f.y - f.h/2, f.w, f.h);
+    ctx.strokeRect(f.x - f.w/2, f.y - f.h/2, f.w, f.h);
+
+    // HP Bar
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = f.hp < 20 ? '#ff3b30' : '#3ef2c1';
+    ctx.fillRect(f.x - f.w/2, f.y - f.h/2 - 10, (f.hp/f.max)*f.w, 3);
+  });
+
+  // Reactor
+  if (reactor.hp > 0) {
+    ctx.shadowBlur = 20 + Math.sin(frame*0.1)*5; ctx.shadowColor = '#3ef2c1';
+    ctx.fillStyle = 'rgba(20, 17, 15, 0.9)'; ctx.strokeStyle = '#3ef2c1'; ctx.lineWidth = 3;
+    drawHex(reactor.x, reactor.y, reactor.r);
+    ctx.fill(); ctx.stroke();
+    // Inner pulse
+    ctx.fillStyle = '#3ef2c1';
+    drawHex(reactor.x, reactor.y, reactor.r * 0.4 + Math.sin(frame*0.2)*4);
+    ctx.fill();
+  }
+
+  // Habitantes
+  inhabitants.forEach(hab => {
+    ctx.beginPath(); ctx.arc(hab.x, hab.y, 6, 0, Math.PI*2);
+    if (hab.down > 0) {
+      ctx.shadowBlur = 5; ctx.shadowColor = '#ff3b30';
+      ctx.fillStyle = '#ff3b30'; ctx.globalAlpha = 0.5;
+    } else {
+      ctx.shadowBlur = 15; ctx.shadowColor = '#3ef2c1';
+      ctx.fillStyle = '#3ef2c1'; ctx.globalAlpha = 1;
+    }
+    ctx.fill(); ctx.globalAlpha = 1;
+  });
+
+  // Raiders (siluetas humanoides)
+  raiders.forEach(r => {
+    const s = r.r / 10; // escala (normal r=10 -> 1; jefes más grandes)
+    ctx.save();
+    ctx.translate(r.x, r.y);
+    ctx.shadowBlur = 6; ctx.shadowColor = '#c0341a';
+    ctx.fillStyle = '#8a3520'; ctx.strokeStyle = '#c75a36'; ctx.lineWidth = 1.5; // óxido visible
+    // cuerpo (hombros -> base)
+    ctx.beginPath();
+    ctx.moveTo(-6*s, 12*s); ctx.lineTo(-5*s, -1*s);
+    ctx.lineTo(5*s, -1*s);  ctx.lineTo(6*s, 12*s);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    // cabeza
+    ctx.beginPath(); ctx.arc(0, -8*s, 4*s, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+    // ojo rojo neón
+    ctx.shadowBlur = 12; ctx.shadowColor = '#ff1a1a'; ctx.fillStyle = '#ff5a4d';
+    ctx.beginPath(); ctx.arc(0, -8*s, 1.8*s, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+
+    // HP Bar Jefe
+    if (r.boss) {
+      ctx.shadowBlur = 0; ctx.fillStyle = '#ff3b30';
+      ctx.fillRect(r.x - 20, r.y - r.r - 16, (r.hp/r.max)*40, 4);
+    }
+  });
+
+  // Proyectiles
+  ctx.shadowBlur = 5; ctx.shadowColor = '#3ef2c1'; ctx.strokeStyle = '#3ef2c1'; ctx.lineWidth = 2;
+  projectiles.forEach(p => {
+    ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x - p.vx*1.5, p.y - p.vy*1.5); ctx.stroke();
+  });
+
+  // Partículas
+  ctx.shadowBlur = 10;
+  particles.forEach(pt => {
+    ctx.shadowColor = pt.c; ctx.fillStyle = pt.c; ctx.globalAlpha = pt.life;
+    ctx.beginPath(); ctx.arc(pt.x, pt.y, 2, 0, Math.PI*2); ctx.fill();
+  });
+  ctx.globalAlpha = 1;
+}
+
+function loop() {
+  requestAnimationFrame(loop);
+  update();
+  draw();
+}
+
+// Iniciar Loop
+loop();
+
+</script>
+</body>
+</html>
