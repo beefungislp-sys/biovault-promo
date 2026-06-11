@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BIOVAULT — El Búnker Vivo</title>
+<style>
+  :root {
+    --escoria: #1A1F1C; --cenicero: #8A8070;
+    --cultivo: #28C87A; --biopuls: #A0F0D8;
+    --presion: #D95F3B; --membrana: #4A7A8A;
+    --bg: #100e0c;
+    --font: 'Courier New', Courier, monospace;
+  }
+  body {
+    margin: 0; background: var(--bg); color: var(--biopuls);
+    font-family: var(--font); overflow: hidden;
+    display: flex; justify-content: center; align-items: center;
+    height: 100vh; user-select: none;
+  }
+  #game-container {
+    position: relative; width: 100%; max-width: 980px;
+    aspect-ratio: 16/9; box-shadow: 0 0 30px rgba(40, 200, 122, 0.15);
+  }
+  canvas { width: 100%; height: 100%; display: block; cursor: crosshair; background: #0d0b0a; }
+  /* CRT scanlines */
+  #game-container::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 10;
+    background: linear-gradient(rgba(18,16,16,0) 50%, rgba(0,0,0,0.22) 50%),
+                linear-gradient(90deg, rgba(255,0,0,0.04), rgba(0,255,0,0.02), rgba(0,0,255,0.04));
+    background-size: 100% 4px, 3px 100%;
+  }
+  .ui-layer {
+    position: absolute; inset: 0; z-index: 20;
+    display: flex; flex-direction: column; justify-content: center; align-items: center;
+    text-align: center; background: rgba(13,11,10,0.86);
+    text-shadow: 0 0 10px var(--cultivo); backdrop-filter: blur(2px);
+  }
+  .hidden { display: none !important; }
+  h1 { font-size: 3.2em; margin: 0; letter-spacing: 4px; color: var(--cultivo); text-shadow: 0 0 18px var(--cultivo); }
+  h2 { font-size: 1.6em; margin: 0 0 14px 0; color: var(--biopuls); }
+  p  { font-size: 1.05em; max-width: 75%; line-height: 1.5; }
+  .sub { color: var(--cenicero); text-shadow: none; }
+  button {
+    background: transparent; border: 2px solid var(--cultivo); color: var(--cultivo);
+    padding: 12px 26px; font-family: var(--font); font-size: 1.1em; font-weight: bold;
+    cursor: pointer; text-shadow: 0 0 6px var(--cultivo);
+    box-shadow: 0 0 12px inset rgba(40,200,122,0.35); margin: 10px;
+    text-transform: uppercase; transition: 0.15s;
+    clip-path: polygon(10px 0, calc(100% - 10px) 0, 100% 10px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 10px 100%, 0 calc(100% - 10px), 0 10px);
+  }
+  button:hover { background: var(--cultivo); color: var(--bg); box-shadow: 0 0 22px var(--cultivo); }
+  /* upgrade cards */
+  #cards { display: flex; gap: 18px; justify-content: center; flex-wrap: wrap; }
+  .card {
+    width: 200px; padding: 16px 14px; cursor: pointer; transition: 0.15s;
+    border: 2px solid var(--membrana); background: rgba(26,31,28,0.92);
+    clip-path: polygon(14px 0, calc(100% - 14px) 0, 100% 14px, 100% calc(100% - 14px), calc(100% - 14px) 100%, 14px 100%, 0 calc(100% - 14px), 0 14px);
+  }
+  .card:hover { border-color: var(--cultivo); box-shadow: 0 0 18px rgba(40,200,122,0.5); transform: translateY(-4px); }
+  .card .tag { font-size: 0.7em; letter-spacing: 2px; color: var(--cenicero); }
+  .card .name { font-size: 1.05em; font-weight: bold; color: var(--cultivo); margin: 6px 0; text-shadow: 0 0 8px rgba(40,200,122,0.6); }
+  .card .desc { font-size: 0.82em; color: var(--biopuls); line-height: 1.4; text-shadow: none; }
+  /* HUD */
+  #hud {
+    position: absolute; top: 12px; left: 14px; right: 14px; z-index: 5;
+    display: flex; justify-content: space-between; align-items: flex-start;
+    font-weight: bold; pointer-events: none; text-shadow: 0 0 5px rgba(160,240,216,0.6);
+  }
+  .hud-box { display: flex; flex-direction: column; gap: 4px; font-size: 0.85em; }
+  .bar-row { display: flex; align-items: center; gap: 6px; }
+  .bar-bg { width: 110px; height: 9px; background: rgba(0,0,0,0.55); border: 1px solid var(--membrana); }
+  .bar-fill { height: 100%; background: var(--cultivo); box-shadow: 0 0 7px var(--cultivo); transition: width 0.2s; }
+  .bar-fill.low { background: var(--presion); box-shadow: 0 0 7px var(--presion); }
+  #zone-name { color: var(--cenicero); font-size: 0.9em; letter-spacing: 2px; }
+  /* banner + hint */
+  #banner {
+    position: absolute; top: 26%; width: 100%; text-align: center; z-index: 15;
+    font-size: 2em; font-weight: bold; pointer-events: none; opacity: 0; transition: opacity 0.4s;
+    text-shadow: 0 0 16px currentColor;
+  }
+  #hint {
+    position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); z-index: 15;
+    background: rgba(26,31,28,0.92); border: 1px solid var(--membrana);
+    padding: 8px 18px; font-size: 0.85em; color: var(--biopuls); pointer-events: none;
+    opacity: 0; transition: opacity 0.4s; max-width: 80%; text-align: center;
+  }
+</style>
+</head>
+<body>
+<div id="game-container">
+  <canvas id="cv" width="960" height="540"></canvas>
+
+  <div id="hud" class="hidden">
+    <div class="hud-box">
+      <div class="bar-row"><span>NÚCLEO</span><div class="bar-bg"><div id="hp-reactor" class="bar-fill"></div></div></div>
+      <div class="bar-row"><span>COMIDA</span><div class="bar-bg"><div id="hp-food" class="bar-fill"></div></div></div>
+      <div class="bar-row"><span>HABITANTES <span id="hud-habs">4</span></span></div>
+    </div>
+    <div class="hud-box" style="text-align:right; align-items:flex-end;">
+      <div style="font-size:1.4em;">OLEADA <span id="hud-wave">1</span>/10</div>
+      <div id="zone-name">T1 · CERCANÍAS</div>
+      <div>SCORE <span id="hud-score">0</span></div>
+    </div>
+  </div>
+
+  <div id="banner"></div>
+  <div id="hint"></div>
+
+  <div id="ui-title" class="ui-layer">
+    <h1>BIOVAULT</h1>
+    <p style="margin:4px 0 0 0; letter-spacing:3px;">EL BÚNKER VIVO</p>
+    <p class="sub">Lo vivo emite. Lo muerto absorbe.<br>
+    Defiende el núcleo del refugio de las oleadas del páramo.</p>
+    <p class="sub" style="font-size:0.85em;">Clic = repeler raiders · recoge cápsulas · elige mejoras entre oleadas · M = silencio<br>
+    Cuidado: tus clics también noquean a tus habitantes.</p>
+    <button onclick="startGame()">Despertar el vault</button>
+  </div>
+
+  <div id="ui-upgrade" class="ui-layer hidden">
+    <h2>· MEJORA DEL REFUGIO ·</h2>
+    <div id="cards"></div>
+  </div>
+
+  <div id="ui-travel" class="ui-layer hidden" style="background: rgba(13,11,10,0.55);">
+    <h2 style="letter-spacing:3px;">DÍA DE AVANCE</h2>
+    <p class="sub">El vault se cierra y camina hacia la siguiente zona…</p>
+  </div>
+
+  <div id="ui-over" class="ui-layer hidden">
+    <h1 style="color:var(--presion); text-shadow:0 0 16px var(--presion);">NÚCLEO COLAPSADO</h1>
+    <p class="sub">El páramo reclama otro refugio.</p>
+    <p>Score final: <span id="over-score">0</span></p>
+    <button onclick="resetGame()">Reintentar (zona nueva)</button>
+  </div>
+
+  <div id="ui-win" class="ui-layer hidden">
+    <h1>SOBREVIVISTE</h1>
+    <p class="sub">El refugio respira. La tierra, algún día, también.</p>
+    <p>Score final: <span id="win-score">0</span><br><span id="win-detail" class="sub" style="font-size:0.8em;"></span></p>
+    <p style="font-size:1.3em; color:var(--cultivo);">Próximamente · BIOVAULT</p>
+    <button onclick="resetGame()">Jugar de nuevo</button>
+  </div>
+</div>
+
+<script>
+"use strict";
+// ════════════════════ BASE ════════════════════
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const W = cv.width, H = cv.height;
+const C = { escoria:'#1A1F1C', cenicero:'#8A8070', cultivo:'#28C87A', biopuls:'#A0F0D8',
+            presion:'#D95F3B', membrana:'#4A7A8A', toxina:'#8DBF3C', oxigeno:'#D4EEF5' };
+const dist = (a,b,x,y) => Math.hypot(x-a, y-b);
+const rand = (a,b) => Math.random()*(b-a)+a;
+const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+function mulberry32(s){ return function(){ s|=0; s=s+0x6D2B79F5|0; let t=Math.imul(s^s>>>15,1|s);
+  t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+
+// ════════════════════ ESTADO ════════════════════
+let state = 'title';            // title | play | upgrade | travel | win | lose
+let wave = 1, score = 0, frameT = 0, clickCd = 0, travelT = 0;
+let runSeed = 0;
+const reactor = { x: 480, y: 420, hp: 100, max: 100, r: 42 };
+let foods = [], habitants = [], raiders = [], shots = [], parts = [], digests = [], crates = [], towers = [];
+let spawnQ = 0, spawnCd = 0, crateCd = 0, raidPulse = 0;
+// stats modificables por mejoras
+let S = {};
+function resetStats(){ S = { clickDmg: 26, habRange: 165, habCd: 1.15, habDmg: 15,
+  regen: 0, shield: 0, arcoStacks: 0, vigStacks: 0, refStacks: 0, towerMax: 0 }; }
+
+// ════════════════════ ZONAS PROCEDURALES ════════════════════
+const ZONES = [
+  { name: 'T1 · CERCANÍAS',        tint: '#171411' },
+  { name: 'T2 · LA SEÑAL',         tint: '#131512' },
+  { name: 'T3 · LAS PROFUNDIDADES',tint: '#141609' },
+];
+let zoneIdx = 0, bg = null, beacon = null;
+const zoneFor = w => w <= 3 ? 0 : w <= 6 ? 1 : 2;
+
+function bakeZone(zi){
+  const rng = mulberry32(runSeed + zi * 7919);
+  const off = document.createElement('canvas'); off.width = W; off.height = H;
+  const g = off.getContext('2d');
+  // base
+  const grad = g.createLinearGradient(0,0,0,H);
+  grad.addColorStop(0, '#0c0a09'); grad.addColorStop(0.55, ZONES[zi].tint); grad.addColorStop(1, '#1b1713');
+  g.fillStyle = grad; g.fillRect(0,0,W,H);
+  // manchas de ceniza en el suelo
+  for (let i=0;i<46;i++){
+    g.fillStyle = `rgba(138,128,112,${rng()*0.05+0.015})`;
+    g.beginPath(); g.ellipse(rng()*W, 300+rng()*240, rng()*90+20, rng()*22+6, 0, 0, 7); g.fill();
+  }
+  // grieta diagonal ocasional (colapso, lenguaje triangular)
+  for (let i=0;i<3;i++){
+    g.strokeStyle = 'rgba(10,9,8,0.5)'; g.lineWidth = rng()*2+1;
+    let x = rng()*W, y = 320+rng()*180;
+    g.beginPath(); g.moveTo(x,y);
+    for (let k=0;k<4;k++){ x += rng()*70-20; y += rng()*30-10; g.lineTo(x,y); }
+    g.stroke();
+  }
+  // horizonte de ruinas (siluetas CENICERO oscuro, sin emisión)
+  beacon = null;
+  const hY = 295;
+  g.fillStyle = '#121110';
+  if (zi === 0){            // colapso diagonal, huecos triangulares
+    for (let i=0;i<9;i++){ const x=rng()*W, w=rng()*70+24, h=rng()*70+18, lean=rng()*26-13;
+      g.beginPath(); g.moveTo(x,hY); g.lineTo(x+lean, hY-h); g.lineTo(x+lean+w*0.7, hY-h*rng()); g.lineTo(x+w,hY); g.closePath(); g.fill(); }
+  } else if (zi === 1){     // fábricas congeladas + chimeneas + torre de radio
+    for (let i=0;i<7;i++){ const x=rng()*W, w=rng()*90+40, h=rng()*55+25;
+      g.fillRect(x, hY-h, w, h);
+      if (rng()<0.6) g.fillRect(x+rng()*w, hY-h-rng()*45-15, 9, rng()*45+15+h); }
+    const bx = rng()*(W-200)+100;                    // torre de radio (único BIOPULS de la zona)
+    g.strokeStyle = '#15140f'; g.lineWidth = 3;
+    g.beginPath(); g.moveTo(bx-16,hY); g.lineTo(bx,hY-120); g.lineTo(bx+16,hY); g.stroke();
+    g.beginPath(); g.moveTo(bx-10,hY-40); g.lineTo(bx+10,hY-40); g.moveTo(bx-6,hY-80); g.lineTo(bx+6,hY-80); g.stroke();
+    beacon = { x: bx, y: hY-122 };
+  } else {                  // ciudad hundida: torres inclinadas tragándose
+    for (let i=0;i<8;i++){ const x=rng()*W, w=rng()*46+26, h=rng()*110+50, a=(rng()*0.5-0.25);
+      g.save(); g.translate(x, hY+14); g.rotate(a);
+      g.fillRect(-w/2, -h, w, h);
+      for (let f=0; f<5; f++){ g.fillStyle='rgba(8,8,7,0.8)'; g.fillRect(-w/2+4, -h+8+f*(h/5), w-8, 4); g.fillStyle='#121110'; }
+      g.restore(); }
+    for (let i=0;i<8;i++){   // bruma TOXINA (química, sin luminancia)
+      g.fillStyle = `rgba(141,191,60,${rng()*0.04+0.015})`;
+      g.beginPath(); g.ellipse(rng()*W, hY+rng()*160, rng()*140+50, rng()*28+10, 0, 0, 7); g.fill(); }
+  }
+  // viñeta
+  const v = g.createRadialGradient(W/2,H/2,220, W/2,H/2,640);
+  v.addColorStop(0,'rgba(0,0,0,0)'); v.addColorStop(1,'rgba(0,0,0,0.5)');
+  g.fillStyle = v; g.fillRect(0,0,W,H);
+  bg = off;
+}
+
+// ceniza a la deriva (continua)
+let ash = [];
+function seedAsh(){ ash = []; const n = zoneIdx===2 ? 26 : 18;
+  for (let i=0;i<n;i++) ash.push({ x:Math.random()*W, y:Math.random()*H, s:rand(0.5,1.6), vy:rand(0.15,0.5), vx:rand(-0.25,0.25) }); }
+
+// ════════════════════ AUDIO (Web Audio, sin archivos) ════════════════════
+let AC=null, master=null, muted=false, amb=null, seqT=null, seqStep=0;
+const SEQ = [220,0,261.6,329.6,0,261.6,392,0,329.6,261.6,0,220,293.7,0,261.6,0];
+function initAudio(){ if (AC) return; AC = new (window.AudioContext||window.webkitAudioContext)();
+  master = AC.createGain(); master.gain.value = 0.32; master.connect(AC.destination); }
+function noiseBuf(d){ const n=Math.floor(AC.sampleRate*d), b=AC.createBuffer(1,n,AC.sampleRate), v=b.getChannelData(0);
+  for (let i=0;i<n;i++) v[i]=Math.random()*2-1; return b; }
+function env(g,t,a,d,p){ g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(p,t+a);
+  g.gain.exponentialRampToValueAtTime(0.0001,t+a+d); }
+function startAmbient(){ if (!AC || amb) return; const t = AC.currentTime;
+  const g = AC.createGain(); g.gain.value = 0.0001; g.connect(master);
+  g.gain.linearRampToValueAtTime(0.03, t+1.5);
+  const lp = AC.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=700; lp.connect(g);
+  const o1=AC.createOscillator(); o1.type='triangle'; o1.frequency.value=110;
+  const o2=AC.createOscillator(); o2.type='triangle'; o2.frequency.value=165;
+  o1.connect(lp); o2.connect(lp); o1.start(); o2.start();
+  amb = { g, o1, o2 }; seqStep = 0;
+  seqT = setInterval(()=>{ const n = SEQ[seqStep%SEQ.length];
+    if (!muted){ if (n>0) pluck(n); if (seqStep%4===2) tick(); } seqStep++; }, 200);
+}
+function stopAmbient(){ if (!amb) return; const t=AC.currentTime;
+  amb.g.gain.cancelScheduledValues(t); amb.g.gain.setValueAtTime(amb.g.gain.value,t);
+  amb.g.gain.exponentialRampToValueAtTime(0.0001,t+0.8);
+  try{ amb.o1.stop(t+0.9); amb.o2.stop(t+0.9); }catch(e){}
+  clearInterval(seqT); amb=null; }
+function pluck(f){ const t=AC.currentTime;
+  const o=AC.createOscillator(); o.type='triangle'; o.frequency.value=f;
+  const o2=AC.createOscillator(); o2.type='square'; o2.frequency.value=f;
+  const g=AC.createGain(); env(g,t,0.004,0.2,0.13); const g2=AC.createGain(); env(g2,t,0.004,0.11,0.03);
+  o.connect(g); o2.connect(g2); g.connect(master); g2.connect(master);
+  o.start(t); o.stop(t+0.25); o2.start(t); o2.stop(t+0.16); }
+function tick(){ const t=AC.currentTime; const s=AC.createBufferSource(); s.buffer=noiseBuf(0.04);
+  const hp=AC.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=4200;
+  const g=AC.createGain(); env(g,t,0.001,0.04,0.06); s.connect(hp); hp.connect(g); g.connect(master); s.start(t); s.stop(t+0.05); }
+function sfxShot(soft){ if (!AC||muted) return; const t=AC.currentTime, v=soft?0.06:0.18;
+  const o=AC.createOscillator(); o.type='square'; o.frequency.setValueAtTime(soft?300:440,t);
+  o.frequency.exponentialRampToValueAtTime(soft?110:120,t+0.08);
+  const g=AC.createGain(); env(g,t,0.001,0.09,v); o.connect(g); g.connect(master); o.start(t); o.stop(t+0.12); }
+function sfxDeath(){ if (!AC||muted) return; const t=AC.currentTime;
+  const s=AC.createBufferSource(); s.buffer=noiseBuf(0.3);
+  const lp=AC.createBiquadFilter(); lp.type='lowpass'; lp.frequency.setValueAtTime(1100,t);
+  lp.frequency.exponentialRampToValueAtTime(120,t+0.28);
+  const g=AC.createGain(); env(g,t,0.002,0.28,0.22); s.connect(lp); lp.connect(g); g.connect(master); s.start(t); s.stop(t+0.32); }
+function sfxRaid(){ if (!AC||muted) return; const t=AC.currentTime;
+  const o=AC.createOscillator(); o.type='sine'; o.frequency.setValueAtTime(70,t);
+  o.frequency.exponentialRampToValueAtTime(34,t+0.5);
+  const g=AC.createGain(); env(g,t,0.01,0.55,0.3); o.connect(g); g.connect(master); o.start(t); o.stop(t+0.6); }
+function sfxPick(){ if (!AC||muted) return; const t=AC.currentTime;
+  [392,523.3].forEach((f,i)=>{ const o=AC.createOscillator(); o.type='triangle'; o.frequency.value=f;
+    const g=AC.createGain(); env(g,t+i*0.09,0.01,0.25,0.12); o.connect(g); g.connect(master);
+    o.start(t+i*0.09); o.stop(t+i*0.09+0.3); }); }
+function sfxCrate(){ if (!AC||muted) return; const t=AC.currentTime;
+  const o=AC.createOscillator(); o.type='triangle'; o.frequency.setValueAtTime(523,t);
+  o.frequency.exponentialRampToValueAtTime(784,t+0.07);
+  const g=AC.createGain(); env(g,t,0.005,0.12,0.1); o.connect(g); g.connect(master); o.start(t); o.stop(t+0.15); }
+function sfxShield(){ if (!AC||muted) return; const t=AC.currentTime;
+  const s=AC.createBufferSource(); s.buffer=noiseBuf(0.08);
+  const bp=AC.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=2600; bp.Q.value=8;
+  const g=AC.createGain(); env(g,t,0.001,0.08,0.14); s.connect(bp); bp.connect(g); g.connect(master); s.start(t); s.stop(t+0.1); }
+function sfxWin(){ if (!AC||muted) return; const t=AC.currentTime;
+  const o=AC.createOscillator(); o.type='sawtooth'; o.frequency.setValueAtTime(82,t);
+  o.frequency.exponentialRampToValueAtTime(41,t+1.4);
+  const g=AC.createGain(); g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(0.26,t+0.05);
+  g.gain.exponentialRampToValueAtTime(0.0001,t+1.6); o.connect(g); g.connect(master); o.start(t); o.stop(t+1.6);
+  [110,146.8,164.8].forEach((f,i)=>{ const oo=AC.createOscillator(); oo.type='square'; oo.frequency.value=f;
+    const gg=AC.createGain(); env(gg,t+i*0.13,0.01,0.8,0.09); oo.connect(gg); gg.connect(master);
+    oo.start(t+i*0.13); oo.stop(t+i*0.13+0.9); }); }
+window.addEventListener('keydown', e => { if (e.key==='m'||e.key==='M'){ muted=!muted; if (master) master.gain.value = muted?0:0.32; } });
+
+// ════════════════════ ENTIDADES ════════════════════
+function initEntities(){
+  reactor.hp = reactor.max;
+  foods = [ { x: 330, y: 470, hp: 60, max: 60, w: 44, h: 32 },
+            { x: 630, y: 470, hp: 60, max: 60, w: 44, h: 32 } ];
+  habitants = []; for (let i=0;i<4;i++) habitants.push({ x:0, y:0, down:0, cd:Math.random() });
+  placeHabitants();
+  raiders=[]; shots=[]; parts=[]; digests=[]; crates=[]; towers=[];
+}
+function placeHabitants(){
+  const n = habitants.length, spread = Math.min(420, 95*Math.max(1,n-1));
+  for (let i=0;i<n;i++){ const t = n===1 ? 0.5 : i/(n-1);
+    habitants[i].x = reactor.x - spread/2 + t*spread;
+    habitants[i].y = 360 - Math.sin(t*Math.PI)*16; }
+}
+function addHabitants(c){ for (let i=0;i<c;i++) habitants.push({ x:0,y:0,down:0,cd:Math.random() }); placeHabitants(); }
+function healModules(a){ reactor.hp = clamp(Math.max(0,reactor.hp)+a, 0, reactor.max);
+  foods.forEach(f => f.hp = clamp(Math.max(0,f.hp)+a, 0, f.max)); }
+
+// ════════════════════ MEJORAS (loop vertical) ════════════════════
+const UPGRADES = [
+  { id:'recluta', tag:'COMUNIDAD', name:'Nuevo habitante', desc:'+1 defensor se une a la línea del refugio.',
+    ok:()=>true, fx:()=>addHabitants(1) },
+  { id:'cosecha', tag:'CULTIVO', name:'Cosecha CULTIVO', desc:'+25 HP a núcleo y módulos (puede revivirlos).',
+    ok:()=>true, fx:()=>healModules(25) },
+  { id:'arco', tag:'CAZADOR', name:'Arco del Cazador', desc:'+40% de daño en tus clics.',
+    ok:()=>S.arcoStacks<3, fx:()=>{ S.clickDmg=Math.round(S.clickDmg*1.4); S.arcoStacks++; } },
+  { id:'vig', tag:'ALERTA', name:'Vigilancia', desc:'+35% de alcance para tus habitantes.',
+    ok:()=>S.vigStacks<2, fx:()=>{ S.habRange*=1.35; S.vigStacks++; } },
+  { id:'reflejos', tag:'ALERTA', name:'Reflejos', desc:'Tus habitantes disparan un 30% más rápido.',
+    ok:()=>S.refStacks<2, fx:()=>{ S.habCd*=0.72; S.refStacks++; } },
+  { id:'escudo', tag:'MEMBRANA', name:'Escudo MEMBRANA', desc:'Campo hexagonal: absorbe los próximos 10 golpes a estructuras.',
+    ok:()=>true, fx:()=>{ S.shield += 10; } },
+  { id:'purif', tag:'BIOPULS', name:'Purificador', desc:'Núcleo y módulos regeneran 1 HP por segundo.',
+    ok:()=>S.regen===0, fx:()=>{ S.regen = 1; } },
+  { id:'torre', tag:'MARGINADOS', name:'Torre para marginados', desc:'Construyes infraestructura aliada: una torre solar que dispara. +200 score (goodwill).',
+    ok:()=>towers.length < 2, fx:()=>{ const side = towers.length===0 ? -1 : 1;
+      towers.push({ x: reactor.x + side*330, y: 330, cd: 0 }); score += 200; } },
+];
+function offerUpgrades(){
+  const pool = UPGRADES.filter(u => u.ok());
+  const picks = [];
+  while (picks.length < 3 && pool.length){ const i = Math.floor(Math.random()*pool.length); picks.push(pool.splice(i,1)[0]); }
+  const box = document.getElementById('cards'); box.innerHTML = '';
+  picks.forEach(u => { const d = document.createElement('div'); d.className = 'card';
+    d.innerHTML = `<div class="tag">· ${u.tag} ·</div><div class="name">${u.name}</div><div class="desc">${u.desc}</div>`;
+    d.onclick = () => { u.fx(); sfxPick(); hideAll('ui-upgrade'); afterUpgrade(); };
+    box.appendChild(d); });
+  show('ui-upgrade'); state = 'upgrade';
+  if (wave === 1) hint('Elige 1 mejora — cada partida ofrece mejoras distintas. Así crece tu refugio.', 5);
+}
+function afterUpgrade(){
+  const nz = zoneFor(wave + 1);
+  if (nz !== zoneIdx){ zoneIdx = nz; state = 'travel'; travelT = 3.0; show('ui-travel'); }
+  else { wave++; startWave(); }
+}
+
+// ════════════════════ OLEADAS ════════════════════
+function startWave(){
+  document.getElementById('hud-wave').textContent = wave;
+  document.getElementById('zone-name').textContent = ZONES[zoneIdx].name;
+  spawnQ = Math.round(6 + wave*3 * (wave===10 ? 1.15 : 1));
+  spawnCd = 1.2; crateCd = rand(4,7); raidPulse = 1.2;
+  banner(`OLEADA ${wave} — ¡RAID!`, C.presion); sfxRaid();
+  state = 'play';
+  if (wave === 1) hint('CLIC sobre los raiders para repelerlos. Cuidado: también puedes noquear a tus habitantes.', 6);
+}
+function spawnRaider(){
+  spawnQ--;
+  let boss = false, big = false;
+  if (wave===5 && spawnQ===0) boss = true;
+  if (wave===10){ if (spawnQ===1) boss = true; if (spawnQ===0){ boss = true; big = true; } }
+  const fast = !boss && zoneIdx===2 && Math.random()<0.3;
+  const hp = boss ? (big ? 620 : 330+wave*10) : (22+wave*9) * (fast?0.6:1);
+  raiders.push({ x: rand(50,W-50), y: -24, hp, max: hp,
+    spd: boss ? (big?11:14) : (28+wave*4) * (fast?1.7:1) * rand(0.85,1.15),
+    r: boss ? (big?30:22) : (fast?8:11), boss, big, lean: rand(-0.12,0.12), flash: 0 });
+}
+
+// ════════════════════ TUTORIAL / UI HELPERS ════════════════════
+let hintT = 0, crateHintDone = false;
+function hint(msg, secs){ const h = document.getElementById('hint'); h.textContent = msg; h.style.opacity = 1; hintT = secs; }
+function banner(msg, col){ const b = document.getElementById('banner');
+  b.textContent = msg; b.style.color = col || C.biopuls; b.style.opacity = 1;
+  setTimeout(()=> b.style.opacity = 0, 1900); }
+function show(id){ document.getElementById(id).classList.remove('hidden'); }
+function hideAll(id){ document.getElementById(id).classList.add('hidden'); }
+
+// ════════════════════ FLUJO ════════════════════
+function startGame(){ initAudio(); if (AC.state==='suspended') AC.resume(); hideAll('ui-title');
+  show('hud'); resetGame(); }
+function resetGame(){
+  ['ui-over','ui-win','ui-upgrade','ui-travel'].forEach(hideAll); show('hud');
+  runSeed = Math.floor(Math.random()*1e9);
+  wave = 1; score = 0; zoneIdx = 0; crateHintDone = false;
+  resetStats(); initEntities(); bakeZone(0); seedAsh();
+  if (AC && AC.state==='suspended') AC.resume(); startAmbient();
+  startWave();
+}
+function endGame(winner){
+  stopAmbient(); state = winner ? 'win' : 'lose'; hideAll('hud');
+  const hpSum = Math.round(Math.max(0,reactor.hp) + Math.max(0,foods[0].hp) + Math.max(0,foods[1].hp));
+  const total = score + hpSum + wave*100;
+  if (winner){ sfxWin();
+    document.getElementById('win-score').textContent = total;
+    document.getElementById('win-detail').textContent = `acciones ${score} + estructuras ${hpSum} + oleadas ${wave*100}`;
+    show('ui-win');
+  } else { sfxDeath();
+    document.getElementById('over-score').textContent = total; show('ui-over'); }
+}
+
+// ════════════════════ UPDATE ════════════════════
+function update(dt){
+  frameT += dt;
+  if (clickCd > 0) clickCd -= dt;
+  if (hintT > 0){ hintT -= dt; if (hintT <= 0) document.getElementById('hint').style.opacity = 0; }
+  if (raidPulse > 0) raidPulse -= dt;
+
+  // ceniza siempre
+  for (const a of ash){ a.y += a.vy; a.x += a.vx;
+    if (a.y > H+5){ a.y = -5; a.x = Math.random()*W; }
+    if (a.x < -5) a.x = W+5; else if (a.x > W+5) a.x = -5; }
+
+  if (state === 'travel'){ travelT -= dt;
+    if (travelT <= 0){ hideAll('ui-travel'); bakeZone(zoneIdx); seedAsh(); wave++; startWave(); }
+    return; }
+  if (state !== 'play') return;
+
+  // spawner
+  if (spawnQ > 0){ spawnCd -= dt;
+    if (spawnCd <= 0){ spawnRaider(); spawnCd = Math.max(0.35, 0.95 - wave*0.05); } }
+
+  // cápsulas
+  crateCd -= dt;
+  if (crateCd <= 0 && crates.length < 2){ crates.push({ x: rand(120,W-120), y: rand(140,330), t: 9 });
+    crateCd = rand(6,10);
+    if (!crateHintDone){ hint('Una cápsula de suministros — recógela con un clic.', 5); crateHintDone = true; } }
+  for (let i=crates.length-1;i>=0;i--){ crates[i].t -= dt; if (crates[i].t<=0) crates.splice(i,1); }
+
+  // regen (purificador)
+  if (S.regen > 0){ if (reactor.hp>0) reactor.hp = Math.min(reactor.max, reactor.hp+S.regen*dt);
+    foods.forEach(f => { if (f.hp>0) f.hp = Math.min(f.max, f.hp+S.regen*dt); }); }
+
+  const foodAlive = foods.some(f => f.hp > 0);
+
+  // objetivos vivos
+  const targets = [];
+  if (reactor.hp > 0) targets.push({ x:reactor.x, y:reactor.y, kind:'reactor', rad:reactor.r });
+  foods.forEach((f,i) => { if (f.hp>0) targets.push({ x:f.x, y:f.y, kind:'food', i, rad:24 }); });
+
+  // raiders
+  for (let i=raiders.length-1;i>=0;i--){ const r = raiders[i];
+    if (r.flash > 0) r.flash -= dt;
+    let best=null, bd=1e9;
+    for (const t of targets){ const d = dist(r.x,r.y,t.x,t.y); if (d<bd){ bd=d; best=t; } }
+    if (best){
+      if (bd > best.rad + r.r){ const an = Math.atan2(best.y-r.y, best.x-r.x);
+        r.x += Math.cos(an)*r.spd*dt; r.y += Math.sin(an)*r.spd*dt; }
+      else { // golpe a estructura cada 0.5 s
+        r.hitT = (r.hitT||0) + dt;
+        if (r.hitT >= 0.5){ r.hitT = 0;
+          if (S.shield > 0){ S.shield--; sfxShield(); spark(best.x, best.y-30, C.membrana, 6); }
+          else { const dmg = r.boss ? 4 : 1.6;
+            if (best.kind==='reactor') reactor.hp -= dmg; else foods[best.i].hp -= dmg;
+            spark(best.x, best.y, C.presion, 4); } } }
+    } else { r.y -= r.spd*dt; }
+    // contacto con habitantes
+    for (const h of habitants){ if (h.down<=0 && dist(r.x,r.y,h.x,h.y) < r.r+10){
+      h.down = 18; spark(h.x, h.y, C.presion, 8); } }
+    if (r.hp <= 0){ // digestión BIOPULS: el búnker lo absorbe
+      digests.push({ x:r.x, y:r.y, t:1.1, big:r.boss });
+      for (let p=0;p<6;p++) parts.push({ x:r.x, y:r.y, vx:rand(-15,15), vy:rand(-50,-15), life:1, c:C.biopuls });
+      score += r.boss ? 150 : 25; sfxDeath(); raiders.splice(i,1); }
+  }
+
+  // habitantes
+  for (const h of habitants){
+    if (h.down > 0){ if (foodAlive) h.down -= dt; continue; }
+    h.cd -= dt;
+    if (h.cd <= 0){ let tgt=null, bd=S.habRange*S.habRange;
+      for (const r of raiders){ const d=(r.x-h.x)**2+(r.y-h.y)**2; if (d<bd){ bd=d; tgt=r; } }
+      if (tgt){ tgt.hp -= S.habDmg; tgt.flash = 0.12;
+        shots.push({ x1:h.x, y1:h.y, x2:tgt.x, y2:tgt.y, t:0.1 }); sfxShot(true); h.cd = S.habCd; }
+      else h.cd = 0.15; }
+  }
+  // torres aliadas
+  for (const tw of towers){ tw.cd -= dt;
+    if (tw.cd <= 0){ let tgt=null, bd=260*260;
+      for (const r of raiders){ const d=(r.x-tw.x)**2+(r.y-tw.y)**2; if (d<bd){ bd=d; tgt=r; } }
+      if (tgt){ tgt.hp -= 12; tgt.flash = 0.12;
+        shots.push({ x1:tw.x, y1:tw.y-26, x2:tgt.x, y2:tgt.y, t:0.1 }); sfxShot(true); tw.cd = 0.9; }
+      else tw.cd = 0.2; } }
+
+  // efectos
+  for (let i=shots.length-1;i>=0;i--){ shots[i].t -= dt; if (shots[i].t<=0) shots.splice(i,1); }
+  for (let i=parts.length-1;i>=0;i--){ const p=parts[i]; p.x+=p.vx*dt; p.y+=p.vy*dt; p.life-=dt*1.6;
+    if (p.life<=0) parts.splice(i,1); }
+  for (let i=digests.length-1;i>=0;i--){ digests[i].t -= dt; if (digests[i].t<=0) digests.splice(i,1); }
+
+  updateHUD();
+  if (reactor.hp <= 0){ endGame(false); return; }
+  if (spawnQ <= 0 && raiders.length === 0){
+    score += 100;
+    if (wave === 10) endGame(true); else offerUpgrades();
+  }
+}
+function spark(x,y,c,n){ for (let i=0;i<n;i++) parts.push({ x,y, vx:rand(-60,60), vy:rand(-70,10), life:0.7, c }); }
+
+function updateHUD(){
+  const hr = document.getElementById('hp-reactor');
+  hr.style.width = (Math.max(0,reactor.hp)/reactor.max*100)+'%';
+  hr.className = 'bar-fill' + (reactor.hp < 30 ? ' low' : '');
+  const fh = Math.max(0,foods[0].hp)+Math.max(0,foods[1].hp);
+  const hf = document.getElementById('hp-food');
+  hf.style.width = (fh/120*100)+'%'; hf.className = 'bar-fill' + (fh<40 ? ' low' : '');
+  document.getElementById('hud-habs').textContent = habitants.filter(h=>h.down<=0).length + '/' + habitants.length;
+  document.getElementById('hud-score').textContent = score;
+}
+
+// ════════════════════ INPUT ════════════════════
+cv.addEventListener('pointerdown', e => {
+  if (state !== 'play' || clickCd > 0) return;
+  const rect = cv.getBoundingClientRect();
+  const x = (e.clientX-rect.left) * (W/rect.width), y = (e.clientY-rect.top) * (H/rect.height);
+  // 1) cápsulas
+  for (let i=crates.length-1;i>=0;i--){ const c = crates[i];
+    if (dist(x,y,c.x,c.y) < 24){ crates.splice(i,1); score += 120; sfxCrate();
+      // +HP al módulo más débil
+      let m = reactor, v = reactor.hp/reactor.max;
+      foods.forEach(f => { if (f.hp>0 && f.hp/f.max < v){ v=f.hp/f.max; m=f; } });
+      m.hp = Math.min(m.max, m.hp+8); spark(c.x,c.y,C.cultivo,10); clickCd = 0.15; return; } }
+  // 2) raiders
+  let hit = false;
+  for (const r of raiders){ if (dist(x,y,r.x,r.y) < r.r+18){ r.hp -= S.clickDmg; r.flash = 0.15; r.y -= 12; hit = true; } }
+  // 3) fuego amigo
+  if (!hit) for (const h of habitants){ if (h.down<=0 && dist(x,y,h.x,h.y) < 18){
+    h.down = 12; spark(h.x,h.y,C.presion,8); hit = true; break; } }
+  if (hit){ spark(x,y,C.biopuls,6); sfxShot(false); clickCd = 0.28; }
+});
+
+// ════════════════════ DRAW ════════════════════
+function octagon(x,y,r){ ctx.beginPath();
+  for (let i=0;i<8;i++){ const a = Math.PI/8 + i*Math.PI/4;
+    const px = x+Math.cos(a)*r, py = y+Math.sin(a)*r; i ? ctx.lineTo(px,py) : ctx.moveTo(px,py); }
+  ctx.closePath(); }
+function hexPath(x,y,r){ ctx.beginPath();
+  for (let i=0;i<6;i++){ const a = i*Math.PI/3 - Math.PI/6;
+    const px = x+Math.cos(a)*r, py = y+Math.sin(a)*r; i ? ctx.lineTo(px,py) : ctx.moveTo(px,py); }
+  ctx.closePath(); }
+
+function draw(){
+  if (bg) ctx.drawImage(bg, 0, 0); else { ctx.fillStyle = '#0d0b0a'; ctx.fillRect(0,0,W,H); }
+
+  // baliza T2 (único BIOPULS de la zona)
+  if (beacon){ const bl = (Math.sin(frameT*3)>0.2) ? 1 : 0.15;
+    ctx.save(); ctx.shadowBlur = 12*bl; ctx.shadowColor = C.biopuls;
+    ctx.fillStyle = `rgba(160,240,216,${0.4+0.6*bl})`;
+    ctx.beginPath(); ctx.arc(beacon.x, beacon.y, 3, 0, 7); ctx.fill(); ctx.restore(); }
+
+  // ceniza
+  ctx.save(); ctx.fillStyle = zoneIdx===2 ? '#9aa17d' : '#8a857d'; ctx.globalAlpha = 0.16;
+  for (const a of ash){ ctx.beginPath(); ctx.arc(a.x, a.y, a.s, 0, 7); ctx.fill(); } ctx.restore();
+
+  drawVaultBase();
+  for (const tw of towers) drawTower(tw);
+  for (const c of crates) drawCrate(c);
+  for (const d of digests) drawDigest(d);
+  for (const h of habitants) drawHabitant(h);
+  for (const r of raiders) drawRaider(r);
+
+  // disparos
+  ctx.save(); ctx.shadowBlur = 7; ctx.shadowColor = C.biopuls; ctx.strokeStyle = C.biopuls; ctx.lineWidth = 2;
+  for (const s of shots){ ctx.globalAlpha = s.t/0.1;
+    ctx.beginPath(); ctx.moveTo(s.x1,s.y1); ctx.lineTo(s.x2,s.y2); ctx.stroke(); }
+  ctx.restore();
+
+  // partículas
+  ctx.save(); ctx.shadowBlur = 8;
+  for (const p of parts){ ctx.shadowColor = p.c; ctx.fillStyle = p.c; ctx.globalAlpha = Math.max(0,p.life);
+    ctx.beginPath(); ctx.arc(p.x, p.y, 2, 0, 7); ctx.fill(); }
+  ctx.restore();
+
+  // escudo MEMBRANA (hexágonos teselados sobre la base)
+  if (S.shield > 0) drawShield();
+
+  // pulso PRESION al iniciar raid (peligro irrumpe)
+  if (raidPulse > 0){ ctx.save(); ctx.globalAlpha = raidPulse*0.4;
+    const g = ctx.createRadialGradient(W/2,H/2,300, W/2,H/2,620);
+    g.addColorStop(0,'rgba(0,0,0,0)'); g.addColorStop(1,'rgba(217,95,59,0.55)');
+    ctx.fillStyle = g; ctx.fillRect(0,0,W,H); ctx.restore(); }
+
+  // animación de viaje
+  if (state === 'travel') drawTravel();
+}
+
+function drawVaultBase(){
+  // casco enterrado
+  ctx.save(); ctx.shadowBlur = 14; ctx.shadowColor = C.cultivo;
+  ctx.strokeStyle = 'rgba(40,200,122,0.45)'; ctx.lineWidth = 2;
+  ctx.fillStyle = 'rgba(40,200,122,0.035)';
+  ctx.beginPath(); ctx.moveTo(220, 520);
+  ctx.quadraticCurveTo(480, 360, 740, 520); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore();
+  // venas BIOPULS reactor → módulos de comida vivos
+  if (reactor.hp > 0){ const pulse = 0.3 + Math.sin(frameT*3.5)*0.22;
+    ctx.save(); ctx.shadowBlur = 10; ctx.shadowColor = C.biopuls;
+    ctx.strokeStyle = `rgba(160,240,216,${pulse})`; ctx.lineWidth = 3;
+    foods.forEach(f => { if (f.hp <= 0) return;
+      ctx.beginPath(); ctx.moveTo(reactor.x, reactor.y);
+      ctx.quadraticCurveTo((reactor.x+f.x)/2, reactor.y+30, f.x, f.y); ctx.stroke(); });
+    ctx.restore(); }
+  // núcleo (OCTÁGONO — construcción intencional del búnker)
+  if (reactor.hp > 0){ ctx.save();
+    ctx.shadowBlur = 18 + Math.sin(frameT*4)*6; ctx.shadowColor = C.cultivo;
+    ctx.fillStyle = 'rgba(16,20,17,0.92)'; ctx.strokeStyle = C.cultivo; ctx.lineWidth = 3;
+    octagon(reactor.x, reactor.y, reactor.r); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = C.cultivo;
+    octagon(reactor.x, reactor.y, reactor.r*0.36 + Math.sin(frameT*5)*4); ctx.fill();
+    ctx.restore(); }
+  // módulos de comida
+  foods.forEach(f => { ctx.save();
+    if (f.hp > 0){ ctx.shadowBlur = 10; ctx.shadowColor = C.cultivo;
+      ctx.fillStyle = 'rgba(16,20,17,0.85)'; ctx.strokeStyle = C.cultivo; ctx.lineWidth = 2;
+      ctx.fillRect(f.x-f.w/2, f.y-f.h/2, f.w, f.h); ctx.strokeRect(f.x-f.w/2, f.y-f.h/2, f.w, f.h);
+      ctx.shadowBlur = 0; ctx.fillStyle = f.hp < 20 ? C.presion : C.cultivo;
+      ctx.fillRect(f.x-f.w/2, f.y-f.h/2-9, (f.hp/f.max)*f.w, 3);
+    } else { // husk muerto: absorbe
+      ctx.fillStyle = '#15130f'; ctx.strokeStyle = '#241f18'; ctx.lineWidth = 2;
+      ctx.fillRect(f.x-f.w/2, f.y-f.h/2, f.w, f.h); ctx.strokeRect(f.x-f.w/2, f.y-f.h/2, f.w, f.h); }
+    ctx.restore(); });
+}
+function drawHabitant(h){
+  ctx.save(); ctx.translate(h.x, h.y);
+  if (h.down > 0){ ctx.rotate(Math.PI/2); ctx.globalAlpha = 0.55;
+    ctx.fillStyle = '#3a352d'; ctx.fillRect(-4, -9, 8, 18);
+  } else { // rectángulo vertical, herramienta emite BIOPULS débil
+    ctx.fillStyle = '#2c2a24'; ctx.fillRect(-4, -10, 8, 20);
+    ctx.shadowBlur = 9; ctx.shadowColor = C.biopuls; ctx.fillStyle = C.biopuls;
+    ctx.beginPath(); ctx.arc(5, -2, 2.2, 0, 7); ctx.fill(); }
+  ctx.restore();
+}
+function drawRaider(r){
+  ctx.save(); ctx.translate(r.x, r.y); ctx.rotate(r.lean);
+  const s = r.r/11;
+  // silueta carmesí oscuro: triángulo agudo, masa superior (visible sobre el páramo)
+  ctx.fillStyle = r.flash > 0 ? '#b5453a' : '#6b1f22';
+  ctx.strokeStyle = '#9c3b34'; ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  ctx.moveTo(-9*s, -8*s); ctx.lineTo(-4*s, -13*s); ctx.lineTo(2*s, -11*s); ctx.lineTo(9*s, -7*s);
+  ctx.lineTo(5*s, 4*s); ctx.lineTo(2*s, 13*s); ctx.lineTo(-2*s, 12*s); ctx.lineTo(-5*s, 3*s);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  // cabeza pequeña (sin ojos, sin glow)
+  ctx.beginPath(); ctx.arc(0, -15*s, 3.4*s, 0, 7); ctx.fill(); ctx.stroke();
+  ctx.restore();
+  if (r.boss){ ctx.save(); ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(r.x-20, r.y-r.r-16, 40, 4);
+    ctx.fillStyle = C.presion; ctx.fillRect(r.x-20, r.y-r.r-16, 40*(r.hp/r.max), 4); ctx.restore(); }
+}
+function drawDigest(d){ // BIOPULS emerge del suelo y digiere al caído
+  const k = 1 - d.t/1.1, R = (d.big?34:20) * (0.4+k);
+  ctx.save(); ctx.globalAlpha = (1-k)*0.8;
+  ctx.shadowBlur = 12; ctx.shadowColor = C.biopuls; ctx.strokeStyle = C.biopuls; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.ellipse(d.x, d.y+6, R, R*0.4, 0, 0, 7); ctx.stroke();
+  for (let i=0;i<5;i++){ const a = i*1.256 + k*2;
+    ctx.beginPath(); ctx.moveTo(d.x+Math.cos(a)*R*0.7, d.y+6+Math.sin(a)*R*0.25);
+    ctx.lineTo(d.x+Math.cos(a)*R*0.5, d.y - k*16); ctx.stroke(); }
+  ctx.restore();
+}
+function drawCrate(c){
+  const bob = Math.sin(frameT*3 + c.x)*3;
+  ctx.save(); ctx.translate(c.x, c.y+bob);
+  ctx.globalAlpha = c.t < 2 ? (Math.sin(frameT*10)>0 ? 1 : 0.4) : 1;
+  ctx.shadowBlur = 8; ctx.shadowColor = C.biopuls;
+  ctx.fillStyle = '#23211c'; ctx.strokeStyle = C.biopuls; ctx.lineWidth = 1.6;
+  octagon(0, 0, 11); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = C.biopuls; ctx.fillRect(-6, -1, 12, 2);
+  ctx.restore();
+}
+function drawTower(t){
+  ctx.save(); ctx.translate(t.x, t.y);
+  ctx.shadowBlur = 8; ctx.shadowColor = C.cultivo;
+  ctx.fillStyle = '#1c1a16'; ctx.strokeStyle = C.cultivo; ctx.lineWidth = 2;
+  ctx.fillRect(-6, -22, 12, 34); ctx.strokeRect(-6, -22, 12, 34);
+  // panel solar inclinado
+  ctx.fillStyle = C.membrana; ctx.globalAlpha = 0.8;
+  ctx.beginPath(); ctx.moveTo(-16,-26); ctx.lineTo(16,-32); ctx.lineTo(18,-24); ctx.lineTo(-14,-18); ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+function drawShield(){
+  ctx.save(); ctx.globalAlpha = 0.5 + Math.sin(frameT*2)*0.12;
+  ctx.strokeStyle = C.membrana; ctx.shadowBlur = 8; ctx.shadowColor = C.membrana; ctx.lineWidth = 1.4;
+  const cx = reactor.x, cy = reactor.y + 8;
+  for (let row=0; row<2; row++) for (let i=-3; i<=3; i++){
+    const hx = cx + i*46 + (row%2)*23, hy = cy - 120 - row*40;
+    if (Math.abs(hx-cx) > 220) continue;
+    hexPath(hx, hy, 23); ctx.stroke(); }
+  ctx.restore();
+  ctx.save(); ctx.fillStyle = C.membrana; ctx.font = 'bold 11px Courier New'; ctx.textAlign = 'center';
+  ctx.fillText('ESCUDO ' + S.shield, reactor.x, reactor.y - 175); ctx.restore();
+}
+function drawTravel(){
+  const k = 1 - travelT/3.0;
+  ctx.save();
+  ctx.fillStyle = 'rgba(10,9,8,0.55)'; ctx.fillRect(0,0,W,H);
+  const vx = -150 + k*(W+300), vy = 330;
+  // casco del vault caminante con costuras de bioglow
+  ctx.shadowBlur = 16; ctx.shadowColor = C.cultivo;
+  ctx.fillStyle = '#15130f'; ctx.strokeStyle = 'rgba(40,200,122,0.7)'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(vx-90, vy+30); ctx.lineTo(vx-60, vy-34);
+  ctx.quadraticCurveTo(vx, vy-64, vx+60, vy-34); ctx.lineTo(vx+90, vy+30); ctx.closePath();
+  ctx.fill(); ctx.stroke();
+  // patas
+  ctx.strokeStyle = 'rgba(40,200,122,0.45)';
+  for (let i=-2;i<=2;i++){ const ph = Math.sin(frameT*7 + i)*8;
+    ctx.beginPath(); ctx.moveTo(vx+i*30, vy+28); ctx.lineTo(vx+i*30+6, vy+52+ph); ctx.stroke(); }
+  // polvo
+  ctx.fillStyle = 'rgba(138,128,112,0.25)';
+  for (let i=0;i<6;i++) { ctx.beginPath(); ctx.arc(vx-80-i*16, vy+44, 5+i*2, 0, 7); ctx.fill(); }
+  ctx.restore();
+}
+
+// ════════════════════ LOOP ════════════════════
+let last = performance.now();
+function loop(now){
+  let dt = (now-last)/1000; last = now; if (dt > 0.05) dt = 0.05;
+  update(dt); draw();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
